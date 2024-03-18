@@ -1,0 +1,1105 @@
+{
+ "cells": [
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "# 11: Using Xarray to look at Daymet precipitation around Mt. Rainier\n",
+    "In this example, we'll use [xarray](http://xarray.pydata.org/en/stable/why-xarray.html) to load and process a [NetCDF](https://www.unidata.ucar.edu/software/netcdf/) file of gridded precipitation data from the [Daymet model](https://daymet.ornl.gov/overview). Xarray aims to make working with multi-dimensional data easier, by implementing labeling of indices (e.g., to allow arrays to be indexed or sliced based on x and y coordinates or time, similar to what pandas does for tabular data).\n",
+    "\n",
+    "<img src=\"http://xray.readthedocs.org/en/stable/_images/dataset-diagram.png\" alt=\"Drawing\" style=\"width: 600px;\"/>\n",
+    "\n",
+    "Next, we'll explore some of the extended geospatial functionality of the [rioxarray](https://github.com/corteva/rioxarray/tree/master) extension.\n",
+    "\n",
+    "Note that there is also a [UXarray package](https://uxarray.readthedocs.io/en/latest/index.html) in early development that provides xarray-like functionality for unstructured grids.\n",
+    "\n",
+    "**Datasets:**\n",
+    "* Gridded precipitation output from the [Daymet model](https://daymet.ornl.gov/overview), for 1980-2018, for the area around Mt. Rainier.\n",
+    "* An elevation raster for the area around Mt. Rainier, created in the `gis_raster_mt_rainier_glaciers.ipynb` exercise.\n",
+    "\n",
+    "**Xarray operations:**\n",
+    "* make a `DataArray` from scratch (using the `DataArray()` constructor)\n",
+    "* load a NetCDF dataset into an `xarray.DataSet` instance\n",
+    "* plotting the NetCDF data in projected or geographic coordinates\n",
+    "* getting values at point locations\n",
+    "* coordinate transformations\n",
+    "* slicing in time and space\n",
+    "* boolean slicing\n",
+    "* computing monthly averages using `groupby`\n",
+    "* outputting extracted timeseries to pandas DataFrames\n",
+    "* subsetting the xarray dataset and saving to a NetCDF file\n",
+    "\n",
+    "**rioxarray operations:**\n",
+    "* add coordinate reference information to a dataset\n",
+    "* reproject a dataset\n",
+    "* write one or more (2D) timeslices of a dataset to a raster\n",
+    "* clip a dataset to a polygon feature\n",
+    "\n",
+    "**References:**\n",
+    "* The [Xarray manual](http://xarray.pydata.org/en/stable/why-xarray.html)\n",
+    "* [Xarray in 45 minutes](https://tutorial.xarray.dev/overview/xarray-in-45-min.html)\n",
+    "* The [GeoHackWeek tutorials](https://github.com/geohackweek/tutorial_contents/tree/master/nDarrays/notebooks)\n",
+    "* [this tutorial from Columbia University](https://rabernat.github.io/research_computing/xarray.html)"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "from pathlib import Path\n",
+    "import numpy as np\n",
+    "import pandas as pd\n",
+    "import rasterio\n",
+    "from rasterio.plot import show\n",
+    "import xarray as xr\n",
+    "from pyproj import Transformer\n",
+    "import matplotlib.pyplot as plt\n",
+    "from matplotlib.colors import LightSource\n",
+    "\n",
+    "# for elevation hillshade if we want to use it\n",
+    "ls = LightSource(azdeg=315, altdeg=45)"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "## Xarray"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "### DataArrays\n",
+    "The basic data structure in xarray is the DataArray, analogous to a Series in pandas. Data Arrays store data for a single variable, and can be any number of dimensions. Below is a simple example of a 1D DataArray."
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "da = xr.DataArray([9, 0, 2, 1, 0])\n",
+    "da.plot()"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "#### Assigning names to the dimensions\n",
+    "(and naming the variable)"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "da = xr.DataArray([9, 0, 2, 1, 0], dims=['x'], name='Temperature')\n",
+    "da.plot()"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "### Coordinates\n",
+    "The real power of Xarray is being able to specify coordinates for each data point (e.g. in x, y, z, time), and then index or slice the data using those coordinates, like in pandas"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "da = xr.DataArray([9, 0, 2, 1, 0],\n",
+    "                  dims=['x'], coords={'x': [10, 20, 30, 40, 50]},\n",
+    "                  name='Temperature')\n",
+    "da"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "da.plot(marker='o')"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "da.loc[:20]"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "As in pandas, we can slice the data using ranges of coordinate values, but for syntax we need to pass a ``slice`` object to the dimension name. As in Pandas (and different from base python or Numpy), the end value of the slice is included."
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "da.sel(x=slice(30,50)) "
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "## Datasets\n",
+    "A Dataset holds multiple DataArrays, analogous to a DataFrame in pandas housing multiple Series. Like in Pandas, the different DataArrays can share coordinates, and they can be assigned variable names (analogous to column names). The graphic at the beginning of this lesson shows a Dataset with precipitation, temperature, latitude and longitude DataArrays.\n",
+    "\n",
+    "A Dataset can be created from a DataArray with the `.to_dataset()` method:"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "ds = da.to_dataset()"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "Additional DataArrays can then be added:"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "ds['precip'] = xr.DataArray(3 * np.array([.5, 0., 0., .1, 0.]), dims=['x'])"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "A Dataset can also be generated from scratch:  \n",
+    "(this example taken from the Xarray documentation)"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "temp = 15 + 8 * np.random.randn(2, 2, 3)\n",
+    "\n",
+    "precip = 10 * np.random.rand(2, 2, 3)\n",
+    "\n",
+    "lon = [[-99.83, -99.32], [-99.79, -99.23]]\n",
+    "\n",
+    "lat = [[42.25, 42.21], [42.63, 42.59]]\n",
+    "\n",
+    "ds = xr.Dataset(\n",
+    "    {\n",
+    "        \"temperature\": ([\"x\", \"y\", \"time\"], temp),\n",
+    "        \"precipitation\": ([\"x\", \"y\", \"time\"], precip),\n",
+    "    },\n",
+    "    coords={\n",
+    "        \"lon\": ([\"x\", \"y\"], lon),\n",
+    "        \"lat\": ([\"x\", \"y\"], lat),\n",
+    "        \"time\": pd.date_range(\"2014-09-06\", periods=3),\n",
+    "        \"reference_time\": pd.Timestamp(\"2014-09-05\"),\n",
+    "    },\n",
+    ")"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "\n",
+    "\n",
+    "### inputs\n",
+    "* [Daymet](https://daymet.ornl.gov/overview) gridded precipitation estimates for area around Mt. Rainier, 1980-2018. Obtained via the [Daymet Tile Selection Tool](https://daymet.ornl.gov/gridded/)\n",
+    "* a [proj string](https://proj.org/usage/quickstart.html) for Daymet could be created from the [dataset description](https://daymet.ornl.gov/overview); however, it was easier to just copy it from [here](http://rpubs.com/tbiggs/GEOG576_EX3_DAYMET)\n",
+    "* a 30 m DEM of elevations around Mt. Rainier, in geographic coordinates, created in the `gis_raster_mt_rainier_glaciers.ipynb` exercise"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "daymet_prcp_data = 'data/xarray/daymet_prcp_rainier_1980-2018.nc'\n",
+    "daymet_proj_string = ('+proj=lcc +lon_0=-100 +lat_0=42.5 +x_0=0 +y_0=0 '\n",
+    "                      '+lat_1=25 +lat_2=60 +ellps=WGS84')\n",
+    "mt_rainier_elevations = 'data/xarray/aligned-19700901_ned1_2003_adj_4269.tif'"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "### Load the Mt. Rainier precipitation dataset\n",
+    "\n",
+    "**Note:** Datasets spanning multiple files can also be loaded using the [`xr.open_mfdataset()`](http://xarray.pydata.org/en/stable/generated/xarray.open_mfdataset.html) constructor (requires the [Dask](https://dask.org/) package). The beauty of xarray's load methods is that they are [lazy](https://en.wikipedia.org/wiki/Lazy_loading), meaning the dataset is scanned to gain an understanding of its contents, but the actual data isn't loaded into memory until it is actually needed. This allows one to work on very large (10s or 100s of GB) datasets that wouldn't fit into memory."
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "ds = xr.load_dataset(daymet_prcp_data)\n",
+    "ds"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "#### Access the precipitation variable"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "ds['prcp']"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "#### make a quick plot of the mean precipitation through time (1980-2018) at each pixel (data point)"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "ds.prcp.mean(dim='time').plot(cbar_kwargs={'label': ds['prcp'].units})"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "### what if we want to plot the data in geographic coordinates?\n",
+    "we can use the attached `DataArray.plot.pcolormesh` method, which wraps `pyplot.pcolormesh`. `pcolormesh` takes grids of x and y values corresponding to each position in the array to be plotted. The attached xarray method just requires us to specify the label indices with the x and y values."
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "fig, ax = plt.subplots(figsize=(11, 8.5))\n",
+    "qm = ds.prcp.mean(dim='time').plot.pcolormesh('lon', 'lat', rasterized=True)"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "### Let's add some topography for reference\n",
+    "\n",
+    "Load the elevation data with `rasterio`, get the bounding extent, and `rasterio.show` to quickly plot the data with its coordinates (instead of row, column locations)"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "with rasterio.open(mt_rainier_elevations) as src:\n",
+    "    elev_bounds = src.bounds\n",
+    "    # reorder the rasterio bounds for pyplot\n",
+    "    elev_extent = (elev_bounds[0], elev_bounds[2], \n",
+    "                   elev_bounds[1], elev_bounds[3])\n",
+    "    elevations = src.read(1)\n",
+    "    show(src)"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "### Overlay the mean precip. values on the topography\n",
+    "* use the `matplotlib` `LightSource.hillshade` method to convert the elevations to a shaded relief raster\n",
+    "    * assign `zorder=-1` to ensure that the data plot on the bottom\n",
+    "* plot mean precip, but specify `alpha < 1` so that it has some transparency; the colorbar can be controlled with `cbar_kwargs` (arguments that are passed to the `matplotlib` colorbar constructor)\n",
+    "* set the plot limits to the extent of the elevation raster (`*` unpacks list elevations into individual arguments)"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "fig, ax = plt.subplots(figsize=(11, 8.5))\n",
+    "ax.imshow(ls.hillshade(elevations, vert_exag=0.1), cmap='gray', extent=elev_extent, \n",
+    "          zorder=-1)\n",
+    "cbar_kwargs={'shrink': 0.7,\n",
+    "             'label': f\"Mean precipitation, 1980-2018, {ds['prcp'].units}\"}\n",
+    "qm = ds.prcp.mean(dim='time').plot.pcolormesh('lon', 'lat', \n",
+    "                                              rasterized=True, \n",
+    "                                              #linewidth=0, \n",
+    "                                              alpha=0.4, \n",
+    "                                              cbar_kwargs=cbar_kwargs)\n",
+    "ax.set_ylim(*elev_extent[2:])\n",
+    "ax.set_xlim(*elev_extent[:2])"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "### Getting data at point locations\n",
+    "\n",
+    "Say we want to get data for the mountain summit, and at the Paradise Visitor Center in Mt. Rainier National Park.\n",
+    "We can easily get the lat, lon coordinates for these locations, but to get data from this dataset, we need to work in the [custom coordinate system for Daymet](https://daymet.ornl.gov/overview). Luckly, we found a PROJ string to define that, which we assigned to the variable `daymet_proj_string`. With the PROJ string, we can use `pyproj` to transform the coordinates to the Daymet CRS."
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "coords = {'summit': (46.852886, -121.760374),\n",
+    "          'paradise': (46.7868, -121.7338)}\n",
+    "\n",
+    "transformer = Transformer.from_crs(4269, daymet_proj_string)\n",
+    "coords_lcc = {k: transformer.transform(*v) for k, v in coords.items()}\n",
+    "coords_lcc"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "#### plot the two locations"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "fig, ax = plt.subplots(figsize=(11, 8.5))\n",
+    "ax.imshow(ls.hillshade(elevations, vert_exag=0.1), cmap='gray', extent=elev_extent, \n",
+    "          zorder=-1)\n",
+    "qm = ds.prcp.mean(dim='time').plot.pcolormesh('lon', 'lat', \n",
+    "                                              rasterized=True, \n",
+    "                                              #linewidth=0, \n",
+    "                                              alpha=0.4)\n",
+    "ax.set_ylim(*elev_extent[2:])\n",
+    "ax.set_xlim(*elev_extent[:2])\n",
+    "for label, (y, x) in coords.items():\n",
+    "    ax.scatter(x, y, c='k')\n",
+    "    ax.text(x, y, label, transform=ax.transData)"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "### Get a time series of precip values at the nearest pixel to the summit"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "x, y = coords_lcc['summit']\n",
+    "ds.prcp.sel(x=[x], y=[y], method='nearest').plot()"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "### we can also slice along the time axis\n",
+    "But to do that, we need to chain the operation (instead of including the `time=` argument in the first call to `DataArray.sel()`)"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "ds.prcp.sel(x=[x], y=[y], method='nearest').sel(time=slice('2015', '2018')).plot()"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "### slicing the whole dataset in time\n",
+    "\n",
+    "Taking getting the mean value for 2012 (note, we could also simply write `time=slice('2012')`"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "ds.prcp.sel(time=slice('2012-01-01', '2012-12-31')).mean(axis=0).plot()"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "### making a 2D slice spatially"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "ds.prcp.sel(x=slice(-1570000, -1565000), y=slice(670000, 665000)).mean(axis=0).plot()"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "### what if we want to slice by latitude and longitude\n",
+    "The projected coordinate system that this dataset is aligned with is not aligned with latitude and longitude, so the lat and lon coordinates associated with each pixel are 2D."
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "ds.lat.shape"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "### boolean slicing\n",
+    "In other words, a box aligned with latitude and longitude will be rotated in the native CRS. Therefore we have to either specify explicitly what lat, lon values we want, or we can use a boolean slice. Let's say we want all of the pixels between 46.8 and 46.9 N, and -121.8 and -121.7 longitude."
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "valid_lat = (ds['lat'].values > 46.8) & (ds['lat'].values < 46.9)\n",
+    "valid_lon = (ds['lon'].values > -121.8) & (ds['lon'].values < -121.7)"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "plt.imshow(valid_lat&valid_lon)"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "ds.prcp.loc[:].where(valid_lat&valid_lon).mean(axis=0).plot()"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "### Writing out subsetted data to new netcdf file\n",
+    "The above boolean indexing only masks the pixels that evaluated to `False`. Oftentimes, we want to subset a large dataset to only include the area we are working in.\n",
+    "\n",
+    "#### drop the rows and columns that have all nans"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "prcp_subset = ds.prcp.loc[:].where(valid_lat&valid_lon)\n",
+    "prcp_subset = prcp_subset.dropna(dim='x', how='all').dropna(dim='y', how='all')\n",
+    "prcp_subset.mean(axis=0).plot()"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "#### write it out to a netcdf file\n",
+    "* use encoding to reduce the resulting file size\n",
+    "\n",
+    "further reading on compression:\n",
+    "https://unidata.github.io/netcdf4-python/#efficient-compression-of-netcdf-variables"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "# make an output folder first\n",
+    "output_folder = Path('11-0output')\n",
+    "output_folder.mkdir(exist_ok=True)\n",
+    "\n",
+    "encoding={'prcp': {'zlib': True, # compression algorithm\n",
+    "                     'complevel': 4, # compression level\n",
+    "                     'dtype': 'float32',\n",
+    "                     '_FillValue': -9999,\n",
+    "                     }}\n",
+    "\n",
+    "prcp_subset.to_netcdf(output_folder / 'rainier_prcp_subset.nc',\n",
+    "                     encoding=encoding)"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "### Groupby\n",
+    "* more in [the xarray manual](http://xarray.pydata.org/en/stable/groupby.html)\n",
+    "* also note that `groupby()` operations can be slow. The [flox project](https://github.com/xarray-contrib/flox) is aiming to speed groupby operations.\n",
+    "\n",
+    "#### getting monthly values"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "ds.prcp.groupby('time.month').mean(dim='time').shape"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "### monthy mean precipitation for the whole dataset, in mm/day"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "ds.prcp.groupby('time.month').mean(dim='time').mean(axis=(1, 2)).plot()"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "### annual precip for whole dataset, in feet"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "annual_precip = ds.prcp.groupby('time.year').sum(dim='time')/304.8\n",
+    "annual_precip.mean(axis=(1, 2)).plot()"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "### comparing precip at the summit vs. Paradise"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "coords_lcc"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "#### convert to feet per month\n",
+    "by multipling by 30.4, the average number of days in a month. This is just for the sake of simplicity in this exercise. A better way to do this would be to multiply by an array with the number of days in each month."
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "prcp_monthly_mean_ft = ds.prcp.groupby('time.month').mean(dim='time') * (30.4/304.8)"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "#### Note that in the winter, these values represent snow-water equivalent, not snowfall\n",
+    "During the winter of 1971-1972, Paradise set the world record for snowfall, with 1,122 inches (93.5 ft, 28.5 m)\n",
+    "It was later broken by Mt. Baker, where 1,140 inches (95 feet) was recorded at the Mt. Baker Ski Area during the 1998-1999 season. Annual average snowfall at Paraside is 54.6 feet for the period of 1916-2016"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "fig, ax = plt.subplots()\n",
+    "for site in ['summit', 'paradise']:\n",
+    "    prcp_site = prcp_monthly_mean_ft.sel(x=coords_lcc[site][0], \n",
+    "                                         y=coords_lcc[site][1],\n",
+    "                                         method='nearest')\n",
+    "    prcp_site.plot(label=site)\n",
+    "    ax.legend()"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "#### Compare annual precip"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "fig, ax = plt.subplots()\n",
+    "for site in ['summit', 'paradise']:\n",
+    "    prcp_site = annual_precip.sel(x=coords_lcc[site][0], \n",
+    "                                         y=coords_lcc[site][1],\n",
+    "                                         method='nearest')\n",
+    "    prcp_site.plot(label=site)\n",
+    "    ax.legend()"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "### plot maps of average monthly precip with topopgraphy"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "prcp_monthly_mean_ft.loc[1].plot()"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "The `prcp_monthly_mean_ft` DataArray we created above is grouped by month. Months are on the 0 axis, which ranges from 1 to 12."
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "prcp_monthly_mean_ft['month']"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "### compare January and August"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "fig, axes = plt.subplots(1, 2, figsize=(15, 8.5))\n",
+    "months = [1, 8]\n",
+    "\n",
+    "for i, ax in enumerate(axes.flat):\n",
+    "    month = months[i]\n",
+    "    ax.imshow(ls.hillshade(elevations, vert_exag=0.1), cmap='gray', extent=elev_extent, \n",
+    "              zorder=-1)\n",
+    "    qm = prcp_monthly_mean_ft.loc[month].plot.pcolormesh(\n",
+    "        'lon', 'lat', rasterized=True, #linewidth=0, \n",
+    "        alpha=0.4, ax=ax, \n",
+    "        cbar_kwargs={\"shrink\": 0.5, \n",
+    "                     \"label\": \"Total precip., in feet\"}\n",
+    "        )\n",
+    "    ax.set_ylim(*elev_extent[2:])\n",
+    "    ax.set_xlim(*elev_extent[:2])\n",
+    "    for label, (y, x) in coords.items():\n",
+    "        ax.scatter(x, y, c='k')\n",
+    "        ax.text(x, y, label, transform=ax.transData)"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "### what if we just want to get a timeseries of values at each point of interest, in a pandas DataFrame?\n",
+    "\n",
+    "#### first make lists of the x and y values, and a corresponding list of site names"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "sites = ['summit', 'paradise']\n",
+    "x = []\n",
+    "y = []\n",
+    "for key in sites:\n",
+    "    x.append(coords_lcc[key][0])\n",
+    "    y.append(coords_lcc[key][1])\n",
+    "x, y"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "For each site, make the selection. Drop the indices we don't need, and convert the resulting DataArray to a pandas DataFrame with the `to_dataframe()` method. Append each dataframe to a list and then concatenate them into a single DataFrame (`axis=1` specifies that the DataFrames should be concatenated along the column axis)"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "dfs = []\n",
+    "for i, site in enumerate(sites):\n",
+    "    df = ds.prcp.sel(x=x[0], \n",
+    "                     y=y[0],\n",
+    "                     method='nearest').drop(['lat', 'lon', 'x', 'y']).to_dataframe()\n",
+    "    df.columns = [site]\n",
+    "    dfs.append(df)\n",
+    "\n",
+    "df = pd.concat(dfs, axis=1)"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "df.head()"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "## rioxarray\n",
+    "Xarray focuses on operations within a dataset, or between datasets in the same coordinate reference system (CRS). It does not keep track of coordinate reference information or do any transformations.\n",
+    "\n",
+    "[rioxarray](https://github.com/corteva/rioxarray/tree/master) is an extension for xarray that provides additional geospatial functionality, including coordinate transformations, intersections with other geospatial features including polygons, and writing arrays to rasters. It uses [rasterio](https://github.com/rasterio/rasterio) and [pyproj](https://github.com/pyproj4/pyproj) to do this.\n"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "import rioxarray"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "### Setting coordinate reference information\n",
+    "Most operations with rioxarray require a coordinate reference. In this case, we have a [PROJ string](https://proj.org/en/9.3/faq.html#what-is-the-best-format-for-describing-coordinate-reference-systems) that we got from the DayMet website, and coordinate reference information imbedded in the dataset.\n",
+    "\n",
+    "We can set the coordinate reference by calling `.rio.write_crs()` on the Xarray object, which writes coordinate reference information to the Xarray dataset in a [CF compliant](https://cfconventions.org/Data/cf-documents/requirements-recommendations/conformance-1.11.html) manner. Similar to pandas, a copy is returned, or we can set the coordinate reference in-place."
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "ds.rio.write_crs(daymet_proj_string, inplace=True)"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "#### Setting the coordinate reference from information in the NetCDF dataset\n",
+    "**Note:** this is often specific to the individual dataset! In this case, we have a number of parameters that may be sufficient to define a CRS. The [pyproj](https://github.com/pyproj4/pyproj) package provides a `CRS` object that allows coordinate reference information to be robustly defined so that it can be used for transformations."
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "ds['lambert_conformal_conic']"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "from pyproj import CRS\n",
+    "\n",
+    "daymet_crs = CRS.from_cf(ds['lambert_conformal_conic'].attrs)\n",
+    "daymet_crs"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "ds.rio.write_crs(daymet_crs, inplace=True)"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "### Reprojecting the dataset\n",
+    "Here we reproject the dataset into geographic coordinates (Lat/Lon). We can use the spatial reference ID 4269 (an [EPSG code](https://www.linkedin.com/pulse/whats-epsg-how-do-i-use-salina-morrow#:~:text=The%20EPSG%20number%20is%20a,that%20can%20display%20those%20files.)) to specify the destination coordinate reference system (geographic coordinates with the NAD83 datum).\n",
+    "\n",
+    "Note that this dataset already includes `lat`/`lon` coordinates. Because the x and y axes are in a projected coordinate reference system (Lambert Conformal Conic), the `lat`/`lon` coordinates are two dimensional (each point in the dataset has its own `lat`/`lon` coordinate). **`rioxarray`** doesn't like this for some reason-- as of version 0.15, it produces a `ValueError: IndexVariable objects must be 1-dimensional` when we try to reproject. To get around this, we can drop the `lat`/`lon` coordinates before calling `.rio.project()`."
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "ds_4269 = ds['prcp'].drop_vars(['lat', 'lon']).rio.reproject(4269)"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "ax = ds_4269.sum(axis=0).plot()"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "### Write an xarray dataset to a raster\n",
+    "\n",
+    "Write part of the dataset out to a GeoTIFF. Note that rioxarray requires us to remove the `'grid_mapping'` attribute first (at least in version 0.15, you will get an error otherwise). `grid_mapping` is a variable from the original NetCDF dataset that specifies that coordinate reference information is contained in a variable called `'lambert_conformal_conic'` (we used it above to specify the coordinate reference information for **rioxarray**).\n",
+    "\n",
+    "#### Write a single 2D timeslice to a raster"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "precip_slice = ds.sel(time='2018-12-30')['prcp']\n",
+    "del precip_slice.attrs['grid_mapping']"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "precip_slice.rio.to_raster(output_folder / 'pcrp_20181230.tif')"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "#### writing a 3D array (of multiple times) to a multi-band raster\n",
+    "In this case, each day from 12/25 to 12/30 is written it a separate band."
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "precip_slice = ds.sel(time=slice('2018-12-25', '2018-12-30'))['prcp']\n",
+    "del precip_slice.attrs['grid_mapping']\n",
+    "precip_slice.rio.to_raster(output_folder / 'pcrp_20181225-30.tif')"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "### Clip to a shapefile area\n",
+    "Sometimes we may want to clip a dataset to a geographic area defined by a polygon shapefile. We can read a shapefile into a GeoDataFrame using `geopandas`. In this case, we'll just use the glacier polygons from the [Rasterio: Mt. Rainier glaciers example](https://github.com/DOI-USGS/python-for-hydrology/blob/main/notebooks/part0_python_intro/10_Rasterio.ipynb)."
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "import geopandas as gpd\n",
+    "\n",
+    "gdf = gpd.read_file(\"data/rasterio/rgi60_glacierpoly_rainier.shp\")\n",
+    "gdf.head()"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "Clipping can be time-intensive, so in this case, we'll just clip all of the arrays from 2018 (n=365)"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "data = ds_4269.sel(time='2018')#.mean(axis=0)"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "The `invert` argument specifies whether we want to only include data pixels within the clip feature(s), or outside of the clip feature(s). "
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "clipped = data.rio.clip(gdf['geometry'].values, gdf.crs, drop=False, invert=False)\n",
+    "clipped"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "#### Plot the clipped data on top of the original clip features"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "fig, ax = plt.subplots()\n",
+    "gdf.plot(ax=ax)\n",
+    "clipped.mean(axis=0).plot(ax=ax)"
+   ]
+  }
+ ],
+ "metadata": {
+  "kernelspec": {
+   "display_name": "Python 3 (ipykernel)",
+   "language": "python",
+   "name": "python3"
+  },
+  "language_info": {
+   "codemirror_mode": {
+    "name": "ipython",
+    "version": 3
+   },
+   "file_extension": ".py",
+   "mimetype": "text/x-python",
+   "name": "python",
+   "nbconvert_exporter": "python",
+   "pygments_lexer": "ipython3",
+   "version": "3.11.7"
+  }
+ },
+ "nbformat": 4,
+ "nbformat_minor": 4
+}
