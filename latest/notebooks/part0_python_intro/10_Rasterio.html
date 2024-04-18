@@ -17,7 +17,7 @@
   <![endif]-->
   
         <script src="../../_static/documentation_options.js?v=feab032e"></script>
-        <script src="../../_static/doctools.js?v=888ff710"></script>
+        <script src="../../_static/doctools.js?v=9a2dae69"></script>
         <script src="../../_static/sphinx_highlight.js?v=dc90522c"></script>
         <script src="../../_static/clipboard.min.js?v=a7894cd8"></script>
         <script src="../../_static/copybutton.js?v=f281be69"></script>
@@ -56,6 +56,7 @@
               <p class="caption" role="heading"><span class="caption-text">Main Curriculum</span></p>
 <ul class="current">
 <li class="toctree-l1 current"><a class="reference internal" href="../../part0.html">     Part 0: Introduction to Python</a><ul class="current">
+<li class="toctree-l2"><a class="reference internal" href="00_python_basics_review.html">00: Introduction to python for hydrologists</a></li>
 <li class="toctree-l2"><a class="reference internal" href="solutions/01_functions_script__solution.html">01: Functions and scripts</a></li>
 <li class="toctree-l2"><a class="reference internal" href="solutions/02_Namespace_objects_modules_packages__solution.html">02: Namespace, modules, packages, and objects</a></li>
 <li class="toctree-l2"><a class="reference internal" href="03_useful-std-library-modules.html">03: Useful standard library modules</a></li>
@@ -68,7 +69,7 @@
 <li class="toctree-l2"><a class="reference internal" href="solutions/07a_Theis-exercise-solution.html">07: Using functions to solve an equation– The Theis example</a></li>
 <li class="toctree-l2"><a class="reference internal" href="07b_VSCode.html">07b: VSCode Tutorial</a></li>
 <li class="toctree-l2"><a class="reference internal" href="solutions/08_pandas.html">08: Working with tabular data in Pandas</a></li>
-<li class="toctree-l2"><a class="reference internal" href="09_Geopandas.html">09: GeoPandas - DataFrames with geometry for GIS applications</a></li>
+<li class="toctree-l2"><a class="reference internal" href="09_a_Geopandas.html">09: GeoPandas - DataFrames with geometry for GIS applications</a></li>
 <li class="toctree-l2"><a class="reference internal" href="solutions/09_Geopandas__solutions.html">09: Geopandas exercise solutions</a></li>
 <li class="toctree-l2 current"><a class="current reference internal" href="#">10: Using Rasterio and Numpy to examine ice loss on Mt. Rainier</a><ul>
 <li class="toctree-l3"><a class="reference internal" href="#Key-takeaways:">Key takeaways:</a></li>
@@ -1264,7 +1265,7 @@ masked_array(
 </div>
 <div class="output_area docutils container">
 <div class="highlight"><pre>
-&lt;matplotlib.colorbar.Colorbar at 0x7459396fb550&gt;
+&lt;matplotlib.colorbar.Colorbar at 0x7fcdd0454d10&gt;
 </pre></div></div>
 </div>
 <div class="nboutput nblast docutils container">
@@ -1664,12 +1665,6 @@ gen_zonal_stats(vectors, raster, layer=0, band=1, nodata=None, affine=None, stat
   warnings.warn(
 /home/runner/micromamba/envs/pyclass-docs/lib/python3.11/site-packages/rasterstats/io.py:345: UserWarning: Setting masked to True because dataset mask has been detected
   warnings.warn(
-/home/runner/micromamba/envs/pyclass-docs/lib/python3.11/site-packages/rasterstats/io.py:345: UserWarning: Setting masked to True because dataset mask has been detected
-  warnings.warn(
-/home/runner/micromamba/envs/pyclass-docs/lib/python3.11/site-packages/rasterstats/io.py:345: UserWarning: Setting masked to True because dataset mask has been detected
-  warnings.warn(
-/home/runner/micromamba/envs/pyclass-docs/lib/python3.11/site-packages/rasterstats/io.py:345: UserWarning: Setting masked to True because dataset mask has been detected
-  warnings.warn(
 </pre></div></div>
 </div>
 <div class="nboutput docutils container">
@@ -1809,10 +1804,6 @@ gen_zonal_stats(vectors, raster, layer=0, band=1, nodata=None, affine=None, stat
   warnings.warn(
 /home/runner/micromamba/envs/pyclass-docs/lib/python3.11/site-packages/rasterstats/io.py:345: UserWarning: Setting masked to True because dataset mask has been detected
   warnings.warn(
-/home/runner/micromamba/envs/pyclass-docs/lib/python3.11/site-packages/rasterstats/io.py:345: UserWarning: Setting masked to True because dataset mask has been detected
-  warnings.warn(
-/home/runner/micromamba/envs/pyclass-docs/lib/python3.11/site-packages/rasterstats/io.py:345: UserWarning: Setting masked to True because dataset mask has been detected
-  warnings.warn(
 </pre></div></div>
 </div>
 <div class="nboutput nblast docutils container">
@@ -1820,6 +1811,16 @@ gen_zonal_stats(vectors, raster, layer=0, band=1, nodata=None, affine=None, stat
 </div>
 <div class="output_area stderr docutils container">
 <div class="highlight"><pre>
+/home/runner/micromamba/envs/pyclass-docs/lib/python3.11/site-packages/rasterstats/io.py:345: UserWarning: Setting masked to True because dataset mask has been detected
+  warnings.warn(
+/home/runner/micromamba/envs/pyclass-docs/lib/python3.11/site-packages/rasterstats/io.py:345: UserWarning: Setting masked to True because dataset mask has been detected
+  warnings.warn(
+/home/runner/micromamba/envs/pyclass-docs/lib/python3.11/site-packages/rasterstats/io.py:345: UserWarning: Setting masked to True because dataset mask has been detected
+  warnings.warn(
+/home/runner/micromamba/envs/pyclass-docs/lib/python3.11/site-packages/rasterstats/io.py:345: UserWarning: Setting masked to True because dataset mask has been detected
+  warnings.warn(
+/home/runner/micromamba/envs/pyclass-docs/lib/python3.11/site-packages/rasterstats/io.py:345: UserWarning: Setting masked to True because dataset mask has been detected
+  warnings.warn(
 /home/runner/micromamba/envs/pyclass-docs/lib/python3.11/site-packages/rasterstats/io.py:345: UserWarning: Setting masked to True because dataset mask has been detected
   warnings.warn(
 /home/runner/micromamba/envs/pyclass-docs/lib/python3.11/site-packages/rasterstats/io.py:345: UserWarning: Setting masked to True because dataset mask has been detected
@@ -2165,7 +2166,7 @@ gen_zonal_stats(vectors, raster, layer=0, band=1, nodata=None, affine=None, stat
 
   <div role="contentinfo">
     <p>&#169; Copyright 2022-2024, USGS Python for Hydrology instructors.
-      <span class="lastupdated">Last updated on Mar 18, 2024.
+      <span class="lastupdated">Last updated on Apr 18, 2024.
       </span></p>
   </div>
 
